@@ -193,7 +193,7 @@ read_index(struct netdump_client *client, const char *dir)
 		return (-1);
 	}
 	fd = openat(g_dumpdir_fd, bounds,
-	    O_RDONLY | O_CREAT | O_CLOEXEC, 0600);
+	    O_RDONLY | O_CREAT | O_CLOEXEC | O_RESOLVE_BENEATH, 0600);
 	if (fd < 0) {
 		LOGERR("openat(%s): %s\n", bounds, strerror(errno));
 		return (-1);
@@ -245,7 +245,7 @@ write_index(struct netdump_client *client)
 		LOGERR("Truncated bounds file path: '%s'\n", bounds);
 		return (-1);
 	}
-	fd = openat(g_dumpdir_fd, bounds, O_WRONLY | O_CLOEXEC);
+	fd = openat(g_dumpdir_fd, bounds, O_WRONLY | O_CLOEXEC | O_RESOLVE_BENEATH);
 	if (fd < 0) {
 		LOGERR("openat(%s): %s\n", bounds, strerror(errno));
 		return (-1);
@@ -278,7 +278,7 @@ open_info_file(struct netdump_client *client, const char *dir, int idx)
 	}
 
 	fd = openat(g_dumpdir_fd, client->infofilename,
-	    O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+	    O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_RESOLVE_BENEATH, 0600);
 	if (fd == -1 && errno != EEXIST)
 		LOGERR("openat(\"%s\"): %s\n",
 		    client->infofilename, strerror(errno));
@@ -331,7 +331,7 @@ open_client_files(struct netdump_client *client, const char *dir)
 		return (-1);
 	}
 	fd = openat(g_dumpdir_fd, client->corefilename,
-	    O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	    O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_RESOLVE_BENEATH, 0600);
 	if (fd == -1) {
 		error = errno;
 		/* Failed. Keep the numbers in sync. */
@@ -722,7 +722,7 @@ handle_ekcd_key(struct netdump_client *client, struct netdump_pkt *pkt)
 		}
 
 		fd = openat(g_dumpdir_fd, keyfile,
-		    O_WRONLY | O_CREAT | O_CLOEXEC, 0400);
+		    O_WRONLY | O_CREAT | O_CLOEXEC | O_RESOLVE_BENEATH, 0400);
 		if (fd < 0) {
 			LOGERR_PERROR("openat()");
 			return;
