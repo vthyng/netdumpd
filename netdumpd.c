@@ -28,7 +28,7 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
-#include <sys/capsicum.h>
+//#include <sys/capsicum.h>
 #include <sys/endian.h>
 #include <sys/errno.h>
 #include <sys/event.h>
@@ -45,7 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/in.h>
 
 #include <assert.h>
-#include <capsicum_helpers.h>
+//#include <capsicum_helpers.h>
 #include <err.h>
 #include <fcntl.h>
 #include <libgen.h>
