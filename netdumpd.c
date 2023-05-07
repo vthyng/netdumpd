@@ -28,7 +28,11 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
-//#include <sys/capsicum.h>
+
+#ifdef WITH_CAPSICUM
+#include <sys/capsicum.h>
+#endif
+
 #include <sys/endian.h>
 #include <sys/errno.h>
 #include <sys/event.h>
@@ -45,7 +49,11 @@ __FBSDID("$FreeBSD$");
 #include <netinet/in.h>
 
 #include <assert.h>
-//#include <capsicum_helpers.h>
+
+#ifdef WITH_CAPSICUM
+#include <capsicum_helpers.h>
+#endif
+
 #include <err.h>
 #include <fcntl.h>
 #include <libgen.h>
@@ -1024,6 +1032,7 @@ get_script_option(void)
 	return (script);
 }
 
+#ifdef WITH_CAPSICUM
 /*
  * Enter capability mode.  This effectively sandboxes netdumpd by restricting
  * its ability to acquire new rights.  In particular, capability mode enforces
@@ -1117,6 +1126,7 @@ err:
 	cap_close(capcasper);
 	return (error);
 }
+#endif
 
 static int
 init_kqueue(void)
@@ -1304,8 +1314,11 @@ main(int argc, char **argv)
 		goto cleanup;
 	if (init_kqueue())
 		goto cleanup;
+
+	#ifdef WITH_CAPSICUM
 	if (init_cap_mode())
 		goto cleanup;
+	#endif
 
 	exit_code = eventloop();
 
