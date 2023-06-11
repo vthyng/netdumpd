@@ -29,9 +29,9 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 
-#ifdef WITH_CAPSICUM
-#include <sys/capsicum.h>
-#endif
+// #ifdef WITH_CAPSICUM
+// #include <sys/capsicum.h>
+// #endif
 
 #include <sys/endian.h>
 #include <sys/errno.h>
