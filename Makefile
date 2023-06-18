@@ -2,21 +2,22 @@
 
 PROG=	netdumpd
 
-ifeq ($(TARGET), without_capsicum)
+# ifeq ($(TARGET), without_capsicum)
 # CFLAGS+=
 LDADD+=	-lnv -lutil
 SRCS=	netdumpd.c	\
 	nocap_handler.c
+# 	nocap_herald.c
 
-else
-CFLAGS+= -DWITH_CASPER -DWITH_CAPSICUM
-LDADD+=	-lcasper -lnv -lutil
-SRCS=	netdumpd.c	\
-	cap_dns.c	\
-	cap_handler.c	\
-	cap_herald.c
+# else
+# CFLAGS+= -DWITH_CASPER -DWITH_CAPSICUM
+# LDADD+=	-lcasper -lnv -lutil
+# SRCS=	netdumpd.c	\
+# 	cap_dns.c	\
+# 	cap_handler.c	\
+# 	cap_herald.c
 
-endif
+# endif
 
 MAN=	netdumpd.8
 BINDIR=	/usr/sbin

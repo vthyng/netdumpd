@@ -29,15 +29,10 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 
-#ifdef WITH_CAPSICUM
-#include <sys/capsicum.h>
-#endif
-
 #include <sys/endian.h>
 #include <sys/errno.h>
 #include <sys/event.h>
 #include <sys/kerneldump.h>
-#include <sys/nv.h>
 #include <sys/procdesc.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
@@ -51,7 +46,10 @@ __FBSDID("$FreeBSD$");
 #include <assert.h>
 
 #ifdef WITH_CAPSICUM
+#include <sys/capsicum.h>
+#include <sys/nv.h>
 #include <capsicum_helpers.h>
+#include "cap_dns.h"
 #endif
 
 #include <err.h>
@@ -71,9 +69,6 @@ __FBSDID("$FreeBSD$");
 
 #include <libutil.h>
 
-#ifdef WITH_CAPSICUM
-#include "cap_dns.h"
-#endif
 #include "netdumpd.h"
 #include "kerneldump_compat.h"
 
@@ -884,14 +879,21 @@ server_event(void)
 	uint32_t seqno;
 	int error, sd;
 
-	// TODO: add netdump_herald as non-cap alternate to netdump_cap_herald
-	// netdump_herald can select cap/non-cap version
+#ifdef WITH_CAPSICUM
 	error = netdump_cap_herald(g_capherald, &sd, &saddr, &seqno, &path);
 	if (error != 0) {
 		LOGERR("netdump_cap_herald(): %s\n", strerror(error));
 		return;
 	}
 
+#else
+	// error = netdump_herald(&sd, &saddr, &seqno, &path);
+	// if (error != 0) {
+	// 	LOGERR("netdump_herald(): %s\n", strerror(error));
+	// 	return;
+	// }
+
+#endif
 	LIST_FOREACH(client, &g_clients, iter) {
 		if (client->ip.s_addr == saddr.sin_addr.s_addr)
 			break;
@@ -1228,6 +1230,9 @@ init_server_socket(void)
 	bindaddr.sin_family = AF_INET;
 	bindaddr.sin_addr.s_addr = g_bindip.s_addr;
 	bindaddr.sin_port = htons(NETDUMP_PORT);
+// #ifndef WITH_CAPSICUM
+//     herald_command(...) // Not sure if I have all the values needed
+// #endif
 	if (bind(g_sock, (struct sockaddr *)&bindaddr, sizeof(bindaddr))) {
 		LOGERR_PERROR("bind()");
 		return (1);
