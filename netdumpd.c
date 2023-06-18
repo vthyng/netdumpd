@@ -29,9 +29,9 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 
-// #ifdef WITH_CAPSICUM
-// #include <sys/capsicum.h>
-// #endif
+#ifdef WITH_CAPSICUM
+#include <sys/capsicum.h>
+#endif
 
 #include <sys/endian.h>
 #include <sys/errno.h>
@@ -71,7 +71,9 @@ __FBSDID("$FreeBSD$");
 
 #include <libutil.h>
 
+#ifdef WITH_CAPSICUM
 #include "cap_dns.h"
+#endif
 #include "netdumpd.h"
 #include "kerneldump_compat.h"
 
@@ -117,8 +119,10 @@ struct netdump_client {
 /* Clients list. */
 static LIST_HEAD(, netdump_client) g_clients = LIST_HEAD_INITIALIZER(g_clients);
 
+#ifdef WITH_CAPSICUM
 /* Capabilities. */
 static cap_channel_t *g_capdns, *g_caphandler, *g_capherald;
+#endif
 
 /* Program arguments handlers. */
 static char g_dumpdir[MAXPATHLEN];
@@ -379,6 +383,7 @@ alloc_client(int sd, struct sockaddr_in *saddr, char *path)
 	client->last_msg = g_now;
 	client->ip = saddr->sin_addr;
 
+#ifdef WITH_CAPSICUM
 	error = cap_getnameinfo(g_capdns, (struct sockaddr *)saddr,
 	    saddr->sin_len, client->hostname, sizeof(client->hostname),
 	    NULL, 0, NI_NAMEREQD);
@@ -397,6 +402,26 @@ alloc_client(int sd, struct sockaddr_in *saddr, char *path)
 		if (firstdot)
 			*firstdot = '\0';
 	}
+#else
+	error = getnameinfo((struct sockaddr *)saddr,
+	    saddr->sin_len, client->hostname, sizeof(client->hostname),
+	    NULL, 0, NI_NAMEREQD);
+	if (error != 0) {
+		/* Can't resolve, try with a numeric IP. */
+		error = getnameinfo((struct sockaddr *)saddr,
+		    saddr->sin_len, client->hostname, sizeof(client->hostname),
+		    NULL, 0, 0);
+		if (error != 0) {
+			LOGERR("getnameinfo(): %s\n", gai_strerror(error));
+			goto error_out;
+		}
+	} else {
+		/* Strip off the domain name. */
+		firstdot = strchr(client->hostname, '.');
+		if (firstdot)
+			*firstdot = '\0';
+	}
+#endif
 
 	/* It should be enough to hold approximatively twice the chunk size. */
 	bufsz = 128 * 1024;
@@ -483,12 +508,21 @@ exec_handler(struct netdump_client *client, const char *reason)
 	struct kevent ev;
 	int pd;
 
+#ifdef WITH_CAPSICUM
 	if (g_caphandler == NULL)
 		return;
 	pd = netdump_cap_handler(g_caphandler, reason, client_ntoa(client),
 	    client->hostname, client->infofilename, client->corefilename);
 	if (pd < 0)
 		LOGERR("netdump_cap_handler(): %m");
+
+#else
+	pd = netdump_handler(reason, client_ntoa(client),
+	    client->hostname, client->infofilename, client->corefilename);
+	if (pd < 0)
+		LOGERR("netdump_handler(): %m");
+
+#endif
 	EV_SET(&ev, pd, EVFILT_PROCDESC, EV_ADD, NOTE_EXIT, 0, NULL);
 	if (kevent(g_kq, &ev, 1, NULL, 0, NULL) != 0) {
 		LOGERR_PERROR("kevent(procdesc)");
@@ -850,6 +884,8 @@ server_event(void)
 	uint32_t seqno;
 	int error, sd;
 
+	// TODO: add netdump_herald as non-cap alternate to netdump_cap_herald
+	// netdump_herald can select cap/non-cap version
 	error = netdump_cap_herald(g_capherald, &sd, &saddr, &seqno, &path);
 	if (error != 0) {
 		LOGERR("netdump_cap_herald(): %s\n", strerror(error));
@@ -1315,11 +1351,12 @@ main(int argc, char **argv)
 	if (init_kqueue())
 		goto cleanup;
 
-	#ifdef WITH_CAPSICUM
+#ifdef WITH_CAPSICUM
 	if (init_cap_mode())
 		goto cleanup;
-	#endif
+#endif
 
+	// Loop here until service is stopped
 	exit_code = eventloop();
 
 cleanup:
@@ -1329,9 +1366,11 @@ cleanup:
 	free(g_handler_script);
 	if (g_sock != -1)
 		close(g_sock);
+#ifdef WITH_CAPSICUM
 	if (g_capherald != NULL)
 		cap_close(g_capherald);
 	if (g_capdns != NULL)
 		cap_close(g_capdns);
+#endif
 	return (exit_code);
 }

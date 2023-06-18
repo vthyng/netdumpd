@@ -1,19 +1,25 @@
 # $FreeBSD$
 
 PROG=	netdumpd
+
+ifeq ($(TARGET), without_capsicum)
+# CFLAGS+=
+LDADD+=	-lnv -lutil
 SRCS=	netdumpd.c	\
+	nocap_handler.c
+
+else
+CFLAGS+= -DWITH_CASPER -DWITH_CAPSICUM
+LDADD+=	-lcasper -lnv -lutil
+SRCS=	netdumpd.c	\
+	cap_dns.c	\
+	cap_handler.c	\
 	cap_herald.c
-# 	cap_dns.c	\
-# 	cap_handler.c
+
+endif
 
 MAN=	netdumpd.8
 BINDIR=	/usr/sbin
-
-LDADD+=	-lcasper -lnv -lutil
-# LDADD+=	-lnv -lutil
-
-# CFLAGS+= -DWITH_CASPER -DWITH_CAPSICUM
-CFLAGS+= -DWITH_CASPER
 
 WARNS?=	6
 
