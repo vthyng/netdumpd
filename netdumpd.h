@@ -38,9 +38,9 @@ int	netdump_cap_herald(struct cap_channel *, int *, struct sockaddr_in *,
 	    uint32_t *, char **);
 
 #else
-int netdump_handler(const char *, const char *,
+int netdump_handler(const char *, const char *, const char *,
         const char *, const char *, const char *);
-int netdump_herald(int *, struct sockaddr_in *,
+int netdump_herald(int g_sock, int *, struct sockaddr_in *,
         uint32_t *, char **);
 #endif
 

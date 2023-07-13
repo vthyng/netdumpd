@@ -43,34 +43,34 @@
  */
 
 int
-netdump_handler(const char *reason, const char *ip,
+netdump_handler(const char *script, const char *reason, const char *ip,
     const char *hostname, const char *infofile, const char *corefile)
 {
-	nvlist_t *nvl;
-	int error, pd;
+	int pd;
+    const char *argv[7];
+    pid_t pid;
 
-	nvl = nvlist_create(0);
-	nvlist_add_string(nvl, "cmd", "exec_handler");
-	nvlist_add_string(nvl, "reason", reason);
-	nvlist_add_string(nvl, "ip", ip);
-	nvlist_add_string(nvl, "hostname", hostname);
-	nvlist_add_string(nvl, "infofile", infofile);
-	nvlist_add_string(nvl, "corefile", corefile);
-	// TODO: not sure how to remove this call, will try commenting out
-	// nvl = cap_xfer_nvlist(cap, nvl);
-	// if (nvl == NULL)
-	// 	return (-1);
+    // Starting with linux unfriendly code (pdfork)
+    // ?? errno?
+    if ((pid = pdfork(&pd, PD_CLOEXEC)) < 0)
+        return (errno);
+    if (pid == 0) {
+        argv[0] = script;
+        argv[1] = reason;
+        argv[2] = ip;
+        argv[3] = hostname;
+        argv[4] = infofile;
+        argv[5] = corefile;
+        argv[6] = NULL;
+        (void)execve(script, __DECONST(char *const *, argv), NULL);
+        _exit(1);
+    }
 
-	error = (int)dnvlist_get_number(nvl, "error", 0);
-	pd = dnvlist_take_descriptor(nvl, "procdesc", -1);
-	nvlist_destroy(nvl);
-
-	if (error != 0) {
-		if (pd != -1) {
-			(void)close(pd);
-			pd = -1;
-		}
-		errno = error;
-	}
-	return (pd);
+    // ?? is this correct?
+    // if (pd != -1) {
+    //  (void)close(pd);
+    //  pd = -1;
+    // }
+    // return (pd);
+    return pd;
 }

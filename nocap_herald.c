@@ -43,48 +43,20 @@
 /*
  * The herald capability allows netdumpd to process netdump herald messages.
  * Upon receipt of such a message, netdumpd needs to reply using a socket bound
- * to the destination address of the message and an ephemeral port. Such a
- * socket cannot be created in capability mode.
+ * to the destination address of the message and an ephemeral port.
  *
- * The herald service reads a herald message from the pre-defined server socket.
+ * The netdump_herald reads a herald message from the pre-defined server socket.
  * If the message is valid, the service will create, bind, and connect a socket
  * with which to continue the transfer, and will the send the socket and some
  * other client parameters to netdumpd.
  */
 
 int
-netdump_herald(int *nsd, struct sockaddr_in *sin,
+netdump_herald(int g_sock, int *nsd, struct sockaddr_in *sinp,
     uint32_t *seqno, char **pathp)
 {
-	nvlist_t *nvl;
-	const struct sockaddr_in *sinp;
-	size_t sz;
 	int error;
 
-	nvl = nvlist_create(0);
-	nvlist_add_string(nvl, "cmd", "herald");
-
-	error = (int)dnvlist_get_number(nvl, "error", 0);
-	if (error != 0)
-		goto out;
-
-	/* Fetch output values. */
-	sinp = nvlist_get_binary(nvl, "srcaddr", &sz);
-	if (sz != sizeof(*sin))
-		errx(1, "size mismatch for 'srcaddr': got %zu", sz);
-	memcpy(sin, sinp, sizeof(*sin));
-	*pathp = dnvlist_take_string(nvl, "path", NULL);
-	*seqno = (uint32_t)nvlist_get_number(nvl, "seqno");
-	*nsd = nvlist_take_descriptor(nvl, "socket");
-out:
-	nvlist_destroy(nvl);
-	return (error);
-}
-
-static int
-herald_command(const char *cmd, const nvlist_t *limits,
-    nvlist_t *nvlin __unused, nvlist_t *nvlout)
-{
 	struct {
 		struct netdump_msg_hdr hdr;
 		char data[MAXPATHLEN];
@@ -97,26 +69,29 @@ herald_command(const char *cmd, const nvlist_t *limits,
 	struct in_addr *dip;
 	size_t cmsgsz, pathsz;
 	ssize_t len;
-	int error, sd, nsd;
 
 	error = 0;
-	nsd = -1;
+	*nsd = -1;
 
-	if (strcmp(cmd, "herald") != 0)
-		return (EINVAL);
-
+	// zero out all the things
 	memset(&msg, 0, sizeof(msg));
 	memset(&ss, 0, sizeof(ss));
+	memset(&ndmsg, 0, sizeof(ndmsg));
 
+	// Set io vector to the netdump message buffer
 	iov.iov_base = &ndmsg;
 	iov.iov_len = sizeof(ndmsg);
 
+	// Track the socket and message together in msg
 	msg.msg_name = &ss;
 	msg.msg_namelen = sizeof(ss);
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1;
 
+	// Set the size in bytes for control messages and track size in cmsgcz
 	cmsgsz = CMSG_SPACE(sizeof(struct in_addr));
+
+	// Allocate memory for the control messages and store size
 	msg.msg_control = calloc(1, cmsgsz);
 	if (msg.msg_control == NULL) {
 		error = errno;
@@ -124,18 +99,25 @@ herald_command(const char *cmd, const nvlist_t *limits,
 	}
 	msg.msg_controllen = cmsgsz;
 
-	sd = nvlist_get_descriptor(limits, "socket");
-	len = recvmsg(sd, &msg, 0);
+	// Read message from server socket in to msg, should include path
+	len = recvmsg(g_sock, &msg, 0);
 	if (len < 0) {
 		error = errno;
 		goto out;
 	}
 
+	// Confirm we got the entire message header
 	if ((size_t)len < sizeof(struct netdump_msg_hdr)) {
 		error = EINVAL;
 		goto out;
 	}
+
+	// Convert netdump header to standard header
 	ndtoh(&ndmsg.hdr);
+
+	// Error if message header type != HERALD
+	//  or original netdump header msg length - struct's length
+	//  or socket protocol != AF_INET
 	if (ndmsg.hdr.mh_type != NETDUMP_HERALD ||
 	    (size_t)len - sizeof(struct netdump_msg_hdr) != ndmsg.hdr.mh_len ||
 	    ss.ss_family != AF_INET) {
@@ -143,50 +125,65 @@ herald_command(const char *cmd, const nvlist_t *limits,
 		goto out;
 	}
 
+	// Read control message header
 	cmh = CMSG_FIRSTHDR(&msg);
 	if (cmh->cmsg_level != IPPROTO_IP || cmh->cmsg_type != IP_RECVDSTADDR) {
 		error = EINVAL;
 		goto out;
 	}
+
+	// This is the IP receiving the HERALD msg
+	// Useful when netdump server is multi homed
 	dip = (struct in_addr *)(void *)CMSG_DATA(msg.msg_control);
 
-	nsd = socket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
+	// Setup new client socket
+	*nsd = socket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
 	    IPPROTO_UDP);
-	if (nsd < 0) {
+	if (*nsd < 0) {
 		error = errno;
 		goto out;
 	}
 
+	// Setup sockaddr_in for new listener on server
+	// Zero out socket in, copy contents from msg, set dip IP
 	memset(&sin, 0, sizeof(sin));
 	sin.sin_len = sizeof(sin);
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = dip->s_addr;
-	sin.sin_port = htons(0);
-	if (bind(nsd, (struct sockaddr *)&sin, sin.sin_len) != 0) {
+	sin.sin_port = htons(0);  // pick random port
+
+	if (bind(*nsd, (struct sockaddr *)&sin, sin.sin_len) != 0) {
 		error = errno;
 		goto out;
 	}
 
+	// Resuse sockaddr in msg for the ACK message
 	from = (struct sockaddr_in *)msg.msg_name;
 	from->sin_port = htons(NETDUMP_ACKPORT);
-	if (connect(nsd, (struct sockaddr *)from, from->sin_len) != 0) {
+	if (connect(*nsd, (struct sockaddr *)from, from->sin_len) != 0) {
 		error = errno;
 		goto out;
 	}
 
-	/* Marshall out-params. */
-	nvlist_move_descriptor(nvlout, "socket", nsd);
-	nvlist_add_number(nvlout, "seqno", (uint64_t)ndmsg.hdr.mh_seqno);
+	// Setup sockaddr to return for alloc_client later
+	memset(sinp, 0, sizeof(*sinp));
+	memcpy(sinp, msg.msg_name, msg.msg_namelen);
+
+	// Get the file path from the control message
 	pathsz = ndmsg.hdr.mh_len;
+
+	*pathp = NULL;
 	if (pathsz > 0 && pathsz <= MIN(MAXPATHLEN, NETDUMP_DATASIZE) &&
 	    ndmsg.data[pathsz - 1] == '\0')
-		nvlist_add_string(nvlout, "path", ndmsg.data);
-	nvlist_add_binary(nvlout, "srcaddr", from, sizeof(*from));
+	    *pathp = strdup(ndmsg.data);
+
+	*seqno = ndmsg.hdr.mh_seqno;
 
 out:
+	// ?? Is this all I need to clean up?
 	if (msg.msg_control != NULL)
 		free(msg.msg_control);
-	if (error != 0 && nsd >= 0)
-		(void)close(nsd);
+	if (error != 0 && *nsd >= 0)
+		(void)close(*nsd);
 	return (error);
 }

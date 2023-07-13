@@ -1,4 +1,4 @@
-/*-
+ /*-
  * Copyright (c) 2005-2011 Sandvine Incorporated. All rights reserved.
  * Copyright (c) 2016-2018 Dell EMC
  *
@@ -512,12 +512,15 @@ exec_handler(struct netdump_client *client, const char *reason)
 		LOGERR("netdump_cap_handler(): %m");
 
 #else
-	pd = netdump_handler(reason, client_ntoa(client),
+	if(g_handler_script == NULL)
+		return;
+	pd = netdump_handler(g_handler_script, reason, client_ntoa(client),
 	    client->hostname, client->infofilename, client->corefilename);
 	if (pd < 0)
 		LOGERR("netdump_handler(): %m");
 
 #endif
+
 	EV_SET(&ev, pd, EVFILT_PROCDESC, EV_ADD, NOTE_EXIT, 0, NULL);
 	if (kevent(g_kq, &ev, 1, NULL, 0, NULL) != 0) {
 		LOGERR_PERROR("kevent(procdesc)");
@@ -887,11 +890,11 @@ server_event(void)
 	}
 
 #else
-	// error = netdump_herald(&sd, &saddr, &seqno, &path);
-	// if (error != 0) {
-	// 	LOGERR("netdump_herald(): %s\n", strerror(error));
-	// 	return;
-	// }
+	error = netdump_herald(g_sock, &sd, &saddr, &seqno, &path);
+	if (error != 0) {
+		LOGERR("netdump_herald(): %s\n", strerror(error));
+		return;
+	}
 
 #endif
 	LIST_FOREACH(client, &g_clients, iter) {
@@ -1230,9 +1233,7 @@ init_server_socket(void)
 	bindaddr.sin_family = AF_INET;
 	bindaddr.sin_addr.s_addr = g_bindip.s_addr;
 	bindaddr.sin_port = htons(NETDUMP_PORT);
-// #ifndef WITH_CAPSICUM
-//     herald_command(...) // Not sure if I have all the values needed
-// #endif
+
 	if (bind(g_sock, (struct sockaddr *)&bindaddr, sizeof(bindaddr))) {
 		LOGERR_PERROR("bind()");
 		return (1);
